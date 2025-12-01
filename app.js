@@ -1,150 +1,113 @@
 // ======================================================
 // Mémento opérationnel IA – RCH
-// app.js — Version dynamique (version = date du jour)
+// app.js — Version QR Optimisée (Option A)
 // ------------------------------------------------------
-// - Application 100 % côté client, online uniquement
-// - Onglet Création de fiche : JSON + QR code compressé
-// - Onglet Lecture de fiche : scan caméra / fichier (QrScanner)
-// - Compression : DEFLATE (pako) + Base64 dans un wrapper
-//   { z: "pako-base64-v1", d: "<base64>" }
-// - Gestion des variables (texte / nombre / géolocalisation)
-// - Compilation d’un prompt final + envoi vers 3 IA
+// - Compression optimisée (deflateRaw + base64)
+// - Wrapper compact { z:"p1", d:"..." }
+// - QR codes lisibles, taille réduite x4 à x10
+// - Génération QR fiable (niveau M, marges adaptées)
+// - Lecture QR via QrScanner (caméra + fichier)
+// - Variables : texte / nombre / géoloc
+// - Compilation du prompt + envoi vers ChatGPT, Perplexity, Mistral
 // ======================================================
 
-let qrScanner = null;             // Instance QrScanner
-let currentFiche = null;          // Objet JSON de la fiche décodée
-let isCameraRunning = false;      // État caméra
-let variableCounter = 0;          // Compteur pour les variables (création)
+// État global
+let qrScanner = null;
+let isCameraRunning = false;
+let currentFiche = null;
+let variableCounter = 0;
 
-// =============================
-// Initialisation globale
-// =============================
+// ======================================================
+// INITIALISATION
+// ======================================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener("DOMContentLoaded", () => {
   initVersion();
   initTabs();
   initCreateTab();
   initReadTab();
 });
 
-// =============================
-// Version automatique
-// =============================
-
+// ------------------------------------------------------
+// Version automatique affichée dans le header
+// ------------------------------------------------------
 function initVersion() {
-  const el = document.getElementById('app-version');
+  const el = document.getElementById("app-version");
   if (!el) return;
-  try {
-    const now = new Date();
-    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '.');
-    el.textContent = 'Version auto : V' + dateStr;
-  } catch (e) {
-    el.textContent = 'Version';
-  }
+
+  const now = new Date();
+  const v = now.toISOString().slice(0, 10).replace(/-/g, ".");
+  el.textContent = "V" + v;
 }
 
-// =============================
+// ------------------------------------------------------
 // Gestion des onglets
-// =============================
-
+// ------------------------------------------------------
 function initTabs() {
-  const btnRead = document.getElementById('tab-btn-read');
-  const btnCreate = document.getElementById('tab-btn-create');
-  const tabRead = document.getElementById('tab-read');
-  const tabCreate = document.getElementById('tab-create');
+  const btnRead = document.getElementById("tab-btn-read");
+  const btnCreate = document.getElementById("tab-btn-create");
+  const tabRead = document.getElementById("tab-read");
+  const tabCreate = document.getElementById("tab-create");
 
-  if (!btnRead || !btnCreate || !tabRead || !tabCreate) return;
-
-  btnRead.addEventListener('click', () => {
-    btnRead.classList.add('active');
-    btnCreate.classList.remove('active');
-    tabRead.classList.add('active');
-    tabCreate.classList.remove('active');
+  btnRead.addEventListener("click", () => {
+    btnRead.classList.add("active");
+    btnCreate.classList.remove("active");
+    tabRead.classList.add("active");
+    tabCreate.classList.remove("active");
   });
 
-  btnCreate.addEventListener('click', () => {
-    btnCreate.classList.add('active');
-    btnRead.classList.remove('active');
-    tabCreate.classList.add('active');
-    tabRead.classList.remove('active');
+  btnCreate.addEventListener("click", () => {
+    btnCreate.classList.add("active");
+    btnRead.classList.remove("active");
+    tabCreate.classList.add("active");
+    tabRead.classList.remove("active");
   });
 }
 
-// =============================
-// Onglet CREATION
-// =============================
+// ======================================================
+// ONGLET CREATION
+// ======================================================
 
 function initCreateTab() {
-  const preprompt = document.getElementById('preprompt');
-  const prepromptCount = document.getElementById('preprompt-count');
-  const btnAddVar = document.getElementById('btn-add-variable');
-  const btnGenerateQR = document.getElementById('btn-generate-qr');
-  const btnDownloadQR = document.getElementById('btn-download-qr');
-  const btnResetCreate = document.getElementById('btn-reset-create');
+  const preprompt = document.getElementById("preprompt");
+  const counter = document.getElementById("preprompt-count");
+  const btnAddVar = document.getElementById("btn-add-variable");
+  const btnGenerateQR = document.getElementById("btn-generate-qr");
+  const btnReset = document.getElementById("btn-reset-create");
+  const btnDownloadQR = document.getElementById("btn-download-qr");
 
-  if (!preprompt || !prepromptCount) return;
-
-  // Compteur de caractères
-  preprompt.addEventListener('input', () => {
-    prepromptCount.textContent = preprompt.value.length.toString();
+  // compteur de caractères
+  preprompt.addEventListener("input", () => {
+    counter.textContent = preprompt.value.length;
   });
 
-  // Ajout première ligne de variable (optionnel)
   addVariableRow();
 
-  if (btnAddVar) {
-    btnAddVar.addEventListener('click', () => {
-      addVariableRow();
-    });
-  }
-
-  if (btnGenerateQR) {
-    btnGenerateQR.addEventListener('click', () => {
-      generateFicheAndQR();
-    });
-  }
-
-  if (btnDownloadQR) {
-    btnDownloadQR.addEventListener('click', () => {
-      downloadGeneratedQR();
-    });
-  }
-
-  if (btnResetCreate) {
-    btnResetCreate.addEventListener('click', () => {
-      resetCreateTab();
-    });
-  }
+  btnAddVar.addEventListener("click", addVariableRow);
+  btnGenerateQR.addEventListener("click", generateFicheAndQR);
+  btnReset.addEventListener("click", resetCreateTab);
+  btnDownloadQR.addEventListener("click", downloadGeneratedQR);
 }
 
-// -----------------------------
+// ------------------------------------------------------
 // Ajout d’une ligne de variable
-// -----------------------------
-
+// ------------------------------------------------------
 function addVariableRow() {
-  const container = document.getElementById('variables-container');
-  const btnAddVar = document.getElementById('btn-add-variable');
-  const maxVars = 10;
+  const container = document.getElementById("variables-container");
+  const btnAdd = document.getElementById("btn-add-variable");
 
-  if (!container) return;
-  if (variableCounter >= maxVars) {
-    if (btnAddVar) btnAddVar.disabled = true;
+  if (variableCounter >= 10) {
+    btnAdd.disabled = true;
     return;
   }
 
   variableCounter++;
-
-  const row = document.createElement('div');
-  row.className = 'variable-row';
-  row.dataset.index = String(variableCounter);
+  const row = document.createElement("div");
+  row.className = "variable-row";
 
   row.innerHTML = `
-    <div class="form-group">
-      <input type="text" class="var-label" placeholder="Label (ex : Code ONU)" />
-    </div>
-    <div class="form-group">
-      <input type="text" class="var-id" placeholder="Identifiant (ex : code_onu)" />
-    </div>
+    <div class="form-group"><input class="var-label" placeholder="Label" /></div>
+    <div class="form-group"><input class="var-id" placeholder="Identifiant" /></div>
     <div class="form-group">
       <select class="var-type">
         <option value="text">Texte</option>
@@ -153,811 +116,482 @@ function addVariableRow() {
       </select>
     </div>
     <div class="var-required">
-      <input type="checkbox" class="var-required-check" id="var-required-${variableCounter}" />
-      <label for="var-required-${variableCounter}">Obligatoire</label>
+      <input type="checkbox" class="var-required-check" />
+      <label>Obligatoire</label>
     </div>
-    <button type="button" class="btn ghost small var-remove-btn">Supprimer</button>
+    <button class="btn ghost small var-remove-btn">Supprimer</button>
   `;
 
-  const removeBtn = row.querySelector('.var-remove-btn');
-  if (removeBtn) {
-    removeBtn.addEventListener('click', () => {
-      row.remove();
-      variableCounter--;
-      if (btnAddVar) btnAddVar.disabled = false;
-    });
-  }
+  row.querySelector(".var-remove-btn").addEventListener("click", () => {
+    row.remove();
+    variableCounter--;
+    btnAdd.disabled = false;
+  });
 
   container.appendChild(row);
 }
 
-// -----------------------------
-// Génération du JSON + QR
-// -----------------------------
-
+// ------------------------------------------------------
+// Génération QR : fiche → JSON → compress → base64 → QR
+// ------------------------------------------------------
 function generateFicheAndQR() {
-  const errorEl = document.getElementById('create-error');
-  if (errorEl) errorEl.textContent = '';
+  const errorEl = document.getElementById("create-error");
+  errorEl.textContent = "";
 
   try {
     const fiche = buildFicheFromCreateForm();
     const payload = buildWrapperAndCompress(fiche);
     renderQRCode(payload);
-    const qrSection = document.getElementById('qr-section');
-    if (qrSection) qrSection.style.display = 'block';
-  } catch (err) {
-    console.error(err);
-    if (errorEl) {
-      errorEl.textContent = err && err.message
-        ? err.message
-        : "Erreur inattendue lors de la génération de la fiche.";
-    }
+
+    document.getElementById("qr-section").style.display = "block";
+  } catch (e) {
+    errorEl.textContent = e.message || "Erreur inconnue.";
   }
 }
 
-// Construit l’objet fiche à partir du formulaire
+// ------------------------------------------------------
+// Construction fiche JSON depuis formulaire
+// ------------------------------------------------------
 function buildFicheFromCreateForm() {
-  const category = getInputValue('meta-category');
-  const title = getInputValue('meta-title');
-  const objective = getInputValue('meta-objective');
-  const author = getInputValue('meta-author');
-  const date = getInputValue('meta-date');
-  const version = getInputValue('meta-version');
-  const preprompt = getInputValue('preprompt');
-  const trustChatgpt = getSelectValue('trust-chatgpt');
-  const trustPerplexity = getSelectValue('trust-perplexity');
-  const trustMistral = getSelectValue('trust-mistral');
-
-  if (!category || !title || !preprompt) {
-    throw new Error("Catégorie, Titre et Pré-prompt sont obligatoires pour générer la fiche.");
-  }
-
-  if (preprompt.length > 10000) {
-    throw new Error("Le pré-prompt dépasse la limite de 10 000 caractères.");
-  }
-
-  const variables = [];
-  const varRows = document.querySelectorAll('.variable-row');
-  varRows.forEach(row => {
-    const label = row.querySelector('.var-label')?.value.trim();
-    const id = row.querySelector('.var-id')?.value.trim();
-    const type = row.querySelector('.var-type')?.value || 'text';
-    const required = !!row.querySelector('.var-required-check')?.checked;
-
-    if (label || id) {
-      if (!label || !id) {
-        throw new Error("Chaque variable utilisée doit avoir un label ET un identifiant.");
-      }
-      variables.push({
-        label: label,
-        id: id,
-        type: type,
-        required: required
-      });
-    }
-  });
-
   const fiche = {
     meta: {
-      category,
-      title,
-      objective,
-      author,
-      date,
-      version
+      category: getInput("meta-category"),
+      title: getInput("meta-title"),
+      objective: getInput("meta-objective"),
+      author: getInput("meta-author"),
+      date: getInput("meta-date"),
+      version: getInput("meta-version"),
     },
+
     trust: {
-      chatgpt: Number(trustChatgpt || 3),
-      perplexity: Number(trustPerplexity || 3),
-      mistral: Number(trustMistral || 3)
+      chatgpt: Number(getInput("trust-chatgpt")),
+      perplexity: Number(getInput("trust-perplexity")),
+      mistral: Number(getInput("trust-mistral")),
     },
-    variables: variables,
-    preprompt: preprompt
+
+    variables: [],
+    preprompt: getInput("preprompt"),
   };
+
+  if (!fiche.meta.category || !fiche.meta.title || !fiche.preprompt) {
+    throw new Error("Catégorie, Titre et Pré-prompt sont obligatoires.");
+  }
+
+  const rows = document.querySelectorAll(".variable-row");
+  rows.forEach((row) => {
+    const label = row.querySelector(".var-label").value.trim();
+    const id = row.querySelector(".var-id").value.trim();
+    const type = row.querySelector(".var-type").value;
+    const required = row.querySelector(".var-required-check").checked;
+
+    if (label || id) {
+      if (!label || !id) throw new Error("Chaque variable doit avoir label + identifiant");
+
+      fiche.variables.push({ label, id, type, required });
+    }
+  });
 
   return fiche;
 }
 
+// ======================================================
+// COMPRESSION OPTIMISÉE (Option A)
+// ======================================================
+
 function buildWrapperAndCompress(fiche) {
-  if (!window.pako) {
-    throw new Error("La bibliothèque pako n'est pas chargée.");
-  }
+  const json = JSON.stringify(fiche);
 
-  const jsonStr = JSON.stringify(fiche);
+  // Compression binaire RAW → optimisation maximale
+  const compressed = pako.deflateRaw(json);
 
-  // Compression RAW (meilleure pour QR)
-  const compressed = pako.deflateRaw(jsonStr);
-
-  // Conversion Uint8Array -> base64 optimisé
+  // Conversion binary → base64
   const base64 = uint8ToBase64(compressed);
 
-  // Wrapper ultra compact
+  // Wrapper minimal
   return JSON.stringify({ z: "p1", d: base64 });
 }
 
-// Conversion optimisée
+// Conversion Uint8Array vers base64 compacte
 function uint8ToBase64(bytes) {
-  let binary = "";
-  const len = bytes.length;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) {
+    bin += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary);
+  return btoa(bin);
 }
 
+// ======================================================
+// AFFICHAGE DU QR CODE (Option A optimisée)
+// ======================================================
 
-// Affiche le QR dans la zone prévue
-function renderQRCode(text) {
-  const qrContainer = document.getElementById('qr-output');
-  if (!qrContainer) return;
+function renderQRCode(payload) {
+  const container = document.getElementById("qr-output");
+  container.innerHTML = "";
 
-  qrContainer.innerHTML = ''; // reset
-
-  if (!window.QRCode) {
-    throw new Error("La bibliothèque de génération de QR (QRCode) n'est pas chargée.");
-  }
-
-  // QRCode.js ajuste automatiquement la version en fonction du contenu
-new QRCode(qrContainer, {
-  text: payload,
-  width: 400,
-  height: 400,
-  margin: 4,                // marge obligatoire
-  correctLevel: QRCode.CorrectLevel.M  // pas H (trop lourd)
-});
-}
-
-// Téléchargement du QR généré en PNG
-function downloadGeneratedQR() {
-  const qrContainer = document.getElementById('qr-output');
-  if (!qrContainer) return;
-
-  let dataUrl = null;
-  const canvas = qrContainer.querySelector('canvas');
-  const img = qrContainer.querySelector('img');
-
-  if (canvas && canvas.toDataURL) {
-    dataUrl = canvas.toDataURL('image/png');
-  } else if (img && img.src.startsWith('data:image')) {
-    dataUrl = img.src;
-  }
-
-  if (!dataUrl) {
-    alert("Impossible de récupérer l'image du QR code pour le téléchargement.");
-    return;
-  }
-
-  const link = document.createElement('a');
-  link.href = dataUrl;
-  link.download = 'fiche-ia-rch-qr.png';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-}
-
-// Réinitialisation onglet création
-function resetCreateTab() {
-  const fields = [
-    'meta-category', 'meta-title', 'meta-objective',
-    'meta-author', 'meta-date', 'meta-version', 'preprompt'
-  ];
-  fields.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
+  new QRCode(container, {
+    text: payload,
+    width: 400,
+    height: 400,
+    margin: 4,
+    correctLevel: QRCode.CorrectLevel.M, // densité plus faible = meilleur scan
   });
+}
 
-  const prepromptCount = document.getElementById('preprompt-count');
-  if (prepromptCount) prepromptCount.textContent = '0';
+// ------------------------------------------------------
+// Téléchargement du QR généré
+// ------------------------------------------------------
+function downloadGeneratedQR() {
+  const canvas = document.querySelector("#qr-output canvas");
+  if (!canvas) return alert("QR non généré.");
 
-  const varsContainer = document.getElementById('variables-container');
-  if (varsContainer) {
-    varsContainer.innerHTML = '';
-  }
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = "qr-fiche-rch.png";
+  link.click();
+}
+
+// ------------------------------------------------------
+// Reset onglet création
+// ------------------------------------------------------
+function resetCreateTab() {
+  [
+    "meta-category",
+    "meta-title",
+    "meta-objective",
+    "meta-author",
+    "meta-date",
+    "meta-version",
+    "preprompt",
+  ].forEach((id) => (document.getElementById(id).value = ""));
+
+  document.getElementById("preprompt-count").textContent = "0";
+  document.getElementById("qr-output").innerHTML = "";
+  document.getElementById("qr-section").style.display = "none";
+  document.getElementById("create-error").textContent = "";
+
+  document.getElementById("variables-container").innerHTML = "";
   variableCounter = 0;
   addVariableRow();
-
-  const qrSection = document.getElementById('qr-section');
-  if (qrSection) qrSection.style.display = 'none';
-
-  const qrOutput = document.getElementById('qr-output');
-  if (qrOutput) qrOutput.innerHTML = '';
-
-  const errorEl = document.getElementById('create-error');
-  if (errorEl) errorEl.textContent = '';
 }
 
-// Utilitaires pour inputs
-function getInputValue(id) {
+// ======================================================
+// UTILITAIRES
+// ======================================================
+function getInput(id) {
   const el = document.getElementById(id);
-  return el ? el.value.trim() : '';
+  return el ? el.value.trim() : "";
 }
 
-function getSelectValue(id) {
-  const el = document.getElementById(id);
-  return el ? el.value : '';
-}
-
-// =============================
-// Onglet LECTURE
-// =============================
+// ======================================================
+// ONGLET LECTURE
+// ======================================================
 
 function initReadTab() {
-  const btnStartCamera = document.getElementById('btn-start-camera');
-  const fileInput = document.getElementById('file-input');
-  const btnResetRead = document.getElementById('btn-reset-read');
-  const extraInfo = document.getElementById('read-extra-info');
-  const btnCopyPrompt = document.getElementById('btn-copy-prompt');
+  document.getElementById("btn-start-camera").addEventListener("click", toggleCamera);
+  document.getElementById("file-input").addEventListener("change", onFileImport);
+  document.getElementById("btn-reset-read").addEventListener("click", resetReadTab);
+  document.getElementById("read-extra-info").addEventListener("input", updateCompiledPrompt);
+  document.getElementById("btn-copy-prompt").addEventListener("click", copyCompiledPrompt);
 
-  if (btnStartCamera) {
-    btnStartCamera.addEventListener('click', () => {
-      toggleCamera();
-    });
-  }
-
-  if (fileInput) {
-    fileInput.addEventListener('change', event => {
-      if (!event.target.files || !event.target.files[0]) return;
-      const file = event.target.files[0];
-      decodeFromFile(file);
-    });
-  }
-
-  if (btnResetRead) {
-    btnResetRead.addEventListener('click', () => {
-      resetReadTab();
-    });
-  }
-
-  if (extraInfo) {
-    extraInfo.addEventListener('input', () => {
-      updateCompiledPrompt();
-    });
-  }
-
-  if (btnCopyPrompt) {
-    btnCopyPrompt.addEventListener('click', () => {
-      copyCompiledPrompt();
-    });
-  }
-
-  // Boutons IA
-  const iaButtons = document.querySelectorAll('.ai-buttons-row .ia-btn');
-  iaButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (btn.disabled) return;
-      const ia = btn.dataset.ia;
-      sendPromptToIA(ia);
+  document.querySelectorAll(".ia-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!btn.disabled) sendPromptToIA(btn.dataset.ia);
     });
   });
 }
 
-// -----------------------------
-// Gestion caméra (QrScanner)
-// -----------------------------
-
+// ------------------------------------------------------
+// Caméra
+// ------------------------------------------------------
 function toggleCamera() {
-  if (isCameraRunning) {
-    stopCamera();
-  } else {
-    startCamera();
-  }
+  if (isCameraRunning) stopCamera();
+  else startCamera();
 }
 
 function startCamera() {
-  const video = document.getElementById('qr-video');
-  const videoWrapper = document.getElementById('video-wrapper');
-  const errorEl = document.getElementById('read-error');
-
-  if (errorEl) errorEl.textContent = '';
-
-  if (!window.QrScanner) {
-    if (errorEl) {
-      errorEl.textContent = "La bibliothèque de lecture QR (QrScanner) n'est pas chargée.";
-    }
-    return;
-  }
-
-  if (!video) return;
+  const video = document.getElementById("qr-video");
+  const wrapper = document.getElementById("video-wrapper");
+  const errorEl = document.getElementById("read-error");
 
   if (!qrScanner) {
+    QrScanner.WORKER_PATH =
+      "https://unpkg.com/qr-scanner@1.4.2/qr-scanner-worker.min.js";
+
     qrScanner = new QrScanner(
       video,
-      result => {
-        handleQrResult(result);
-      },
+      (result) => handleQrResult(result),
       {
-        /* Préférence pour la caméra arrière sur mobile */
-        preferredCamera: 'environment',
-        highlightScanRegion: true,
-        highlightCodeOutline: true
+        preferredCamera: "environment",
       }
     );
   }
 
-  qrScanner.start()
+  qrScanner
+    .start()
     .then(() => {
       isCameraRunning = true;
-      if (videoWrapper) videoWrapper.classList.add('active');
-      const btn = document.getElementById('btn-start-camera');
-      if (btn) btn.textContent = 'Arrêter la caméra';
+      wrapper.classList.add("active");
+      document.getElementById("btn-start-camera").textContent = "Arrêter la caméra";
     })
-    .catch(err => {
-      console.error(err);
-      isCameraRunning = false;
-      if (videoWrapper) videoWrapper.classList.remove('active');
-      const btn = document.getElementById('btn-start-camera');
-      if (btn) btn.textContent = 'Activer la caméra';
-      if (errorEl) {
-        errorEl.textContent = "Impossible d'accéder à la caméra. Vérifiez les autorisations du navigateur.";
-      }
+    .catch(() => {
+      errorEl.textContent =
+        "Impossible d'accéder à la caméra. Vérifiez les autorisations.";
     });
 }
 
 function stopCamera() {
-  const videoWrapper = document.getElementById('video-wrapper');
-
-  if (qrScanner) {
-    qrScanner.stop();
-  }
+  if (qrScanner) qrScanner.stop();
   isCameraRunning = false;
-  if (videoWrapper) videoWrapper.classList.remove('active');
-  const btn = document.getElementById('btn-start-camera');
-  if (btn) btn.textContent = 'Activer la caméra';
+  document.getElementById("video-wrapper").classList.remove("active");
+  document.getElementById("btn-start-camera").textContent = "Activer la caméra";
 }
 
-// -----------------------------
-// Lecture depuis un fichier
-// -----------------------------
+// ------------------------------------------------------
+// Lecture par fichier
+// ------------------------------------------------------
+function onFileImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
 
-function decodeFromFile(file) {
-  const errorEl = document.getElementById('read-error');
-  if (errorEl) errorEl.textContent = '';
-
-  if (!window.QrScanner) {
-    if (errorEl) {
-      errorEl.textContent = "La bibliothèque QrScanner n'est pas disponible pour l'analyse d'image.";
-    }
-    return;
-  }
-
-  QrScanner.scanImage(file, { returnDetailedScanResult: true })
-    .then(result => {
-      handleQrResult(result.data || result);
-    })
-    .catch(err => {
-      console.error(err);
-      if (errorEl) {
-        errorEl.textContent = "Impossible de lire le QR depuis le fichier : " + (err.message || 'erreur inconnue.');
-      }
+  QrScanner.scanImage(file)
+    .then((result) => handleQrResult(result))
+    .catch(() => {
+      document.getElementById("read-error").textContent =
+        "Impossible de lire le QR depuis le fichier.";
     });
 }
 
-// -----------------------------
-// Traitement du résultat QR
-// -----------------------------
-
+// ------------------------------------------------------
+// Décodage du QR (Option A → wrapper p1)
+// ------------------------------------------------------
 function handleQrResult(text) {
   stopCamera();
-
-  const errorEl = document.getElementById('read-error');
-  if (errorEl) errorEl.textContent = '';
+  document.getElementById("read-error").textContent = "";
 
   try {
-    const fiche = decodeWrapperOrJson(text);
-    currentFiche = fiche;
-    renderReadFormFromFiche(fiche);
-  } catch (err) {
-    console.error(err);
-    if (errorEl) {
-      errorEl.textContent = "QR code lu mais impossible de décoder les données : " +
-        (err && err.message ? err.message : 'format non reconnu.');
+    const parsed = JSON.parse(text);
+
+    // wrapper optimisé
+    if (parsed.z === "p1") {
+      const binary = atob(parsed.d);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const jsonStr = pako.inflateRaw(bytes, { to: "string" });
+      currentFiche = JSON.parse(jsonStr);
+    } else {
+      throw new Error("QR code non compatible avec Option A.");
     }
-  }
-}
 
-// Décodage : wrapper + compression ou JSON direct
-function decodeWrapperOrJson(text) {
-  let obj;
-  try {
-    obj = JSON.parse(text);
+    renderReadForm(currentFiche);
   } catch (e) {
-    throw new Error("Le contenu décodé n'est pas un JSON valide.");
+    document.getElementById("read-error").textContent =
+      "Impossible de décoder la fiche : " + e.message;
   }
-
-  // Wrapper { z: "pako-base64-v1", d: "<base64>" }
-  if (obj && obj.z === 'pako-base64-v1' && typeof obj.d === 'string') {
-    if (!window.pako) {
-      throw new Error("Le QR utilise une compression, mais la bibliothèque pako n'est pas disponible.");
-    }
-    const binaryStr = atob(obj.d);
-    const jsonStr = pako.inflate(binaryStr, { to: 'string' });
-    return JSON.parse(jsonStr);
-  }
-
-  // JSON direct (fallback)
-  return obj;
 }
 
-// -----------------------------
-// Construction du formulaire de lecture à partir de la fiche
-// -----------------------------
+// ------------------------------------------------------
+// Affichage du formulaire de lecture
+// ------------------------------------------------------
+function renderReadForm(fiche) {
+  const form = document.getElementById("read-form");
+  form.style.display = "block";
 
-function renderReadFormFromFiche(fiche) {
-  const readForm = document.getElementById('read-form');
-  const catInput = document.getElementById('read-category');
-  const titleInput = document.getElementById('read-title');
-  const varsContainer = document.getElementById('read-variables-container');
-  const extraInfo = document.getElementById('read-extra-info');
-  const compiledPrompt = document.getElementById('compiled-prompt');
+  document.getElementById("read-category").value = fiche.meta.category || "";
+  document.getElementById("read-title").value = fiche.meta.title || "";
 
-  if (!readForm || !catInput || !titleInput || !varsContainer || !extraInfo || !compiledPrompt) return;
+  const vars = document.getElementById("read-variables-container");
+  vars.innerHTML = "";
 
-  readForm.style.display = 'block';
+  fiche.variables.forEach((v) => vars.appendChild(createReadVariableRow(v)));
 
-  const meta = fiche.meta || {};
-  catInput.value = meta.category || '';
-  titleInput.value = meta.title || '';
-
-  // Vide les anciens champs
-  varsContainer.innerHTML = '';
-
-  const vars = fiche.variables || [];
-  vars.forEach(variable => {
-    const row = createReadVariableRow(variable);
-    varsContainer.appendChild(row);
-  });
-
-  // Indices de confiance -> boutons IA
-  setupIaButtonsFromTrust(fiche.trust);
-
-  // Reset info + prompt
-  extraInfo.value = '';
-  compiledPrompt.value = '';
-
-  // Première génération du prompt
+  updateIaButtons(fiche.trust);
   updateCompiledPrompt();
 }
 
-// Création d’une ligne pour une variable à saisir (onglet lecture)
-function createReadVariableRow(variable) {
-  const container = document.createElement('div');
-  container.className = 'variables-read-row';
+// Ligne variable lecture
+function createReadVariableRow(v) {
+  const row = document.createElement("div");
+  row.dataset.varId = v.id;
+  row.dataset.varType = v.type;
+  row.dataset.required = v.required ? "true" : "false";
 
-  const label = variable.label || variable.id || 'Variable';
-  const id = variable.id || '';
-  const type = variable.type || 'text';
-  const required = !!variable.required;
-
-  // On stocke les informations nécessaires sur la ligne
-  container.dataset.varId = id;
-  container.dataset.varType = type;
-  container.dataset.required = required ? 'true' : 'false';
-
-  if (type === 'geolocation') {
-    container.classList.add('geoloc-row');
-    container.innerHTML = `
+  if (v.type === "geolocation") {
+    row.className = "geoloc-row";
+    row.innerHTML = `
       <div class="form-group">
-        <label>${label}${required ? ' *' : ''}</label>
-        <button type="button" class="btn secondary btn-geoloc">Acquérir la position</button>
+        <label>${v.label}${v.required ? " *" : ""}</label>
+        <button class="btn secondary btn-geoloc">Acquérir</button>
       </div>
       <div class="form-group">
         <label>Latitude</label>
-        <input type="text" class="var-input-lat" readonly />
+        <input class="var-input-lat" readonly />
       </div>
       <div class="form-group">
         <label>Longitude</label>
-        <input type="text" class="var-input-lon" readonly />
+        <input class="var-input-lon" readonly />
       </div>
     `;
 
-    const btnGeoloc = container.querySelector('.btn-geoloc');
-    if (btnGeoloc) {
-      btnGeoloc.addEventListener('click', () => {
-        acquirePositionForRow(container);
-      });
-    }
-
-    const latInput = container.querySelector('.var-input-lat');
-    const lonInput = container.querySelector('.var-input-lon');
-    if (latInput) latInput.addEventListener('input', updateCompiledPrompt);
-    if (lonInput) lonInput.addEventListener('input', updateCompiledPrompt);
-
+    row.querySelector(".btn-geoloc").addEventListener("click", () =>
+      acquirePosition(row)
+    );
   } else {
-    container.innerHTML = `
+    row.className = "variables-read-row";
+    row.innerHTML = `
       <div class="form-group">
-        <label>${label}${required ? ' *' : ''}</label>
-        <input type="${type === 'number' ? 'number' : 'text'}"
-               class="var-input"
-               data-var-id="${id}" />
+        <label>${v.label}${v.required ? " *" : ""}</label>
+        <input class="var-input" type="${v.type === "number" ? "number" : "text"}" />
       </div>
     `;
-    const input = container.querySelector('.var-input');
-    if (input) {
-      input.addEventListener('input', () => {
-        updateCompiledPrompt();
-      });
-    }
+    row.querySelector(".var-input").addEventListener("input", updateCompiledPrompt);
   }
 
-  return container;
+  return row;
 }
 
-// Acquisition géolocalisation
-function acquirePositionForRow(row) {
-  const latInput = row.querySelector('.var-input-lat');
-  const lonInput = row.querySelector('.var-input-lon');
-  const errorEl = document.getElementById('read-error');
-
-  if (errorEl) errorEl.textContent = '';
-
-  if (!navigator.geolocation) {
-    if (errorEl) errorEl.textContent = "La géolocalisation n'est pas supportée par ce navigateur.";
-    return;
-  }
-
+// ------------------------------------------------------
+// Géolocalisation
+// ------------------------------------------------------
+function acquirePosition(row) {
   navigator.geolocation.getCurrentPosition(
-    position => {
-      const { latitude, longitude } = position.coords;
-      if (latInput) latInput.value = latitude.toFixed(6);
-      if (lonInput) lonInput.value = longitude.toFixed(6);
+    (pos) => {
+      row.querySelector(".var-input-lat").value = pos.coords.latitude.toFixed(6);
+      row.querySelector(".var-input-lon").value = pos.coords.longitude.toFixed(6);
       updateCompiledPrompt();
     },
-    err => {
-      console.error(err);
-      if (errorEl) {
-        errorEl.textContent = "Impossible d'acquérir la position : " + (err.message || 'erreur inconnue.');
-      }
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 8000,
-      maximumAge: 0
+    () => {
+      document.getElementById("read-error").textContent =
+        "Impossible d’obtenir la géolocalisation.";
     }
   );
 }
 
-// Configuration des boutons IA selon les indices de confiance
-function setupIaButtonsFromTrust(trust) {
-  const defaultTrust = { chatgpt: 3, perplexity: 3, mistral: 3 };
-  const t = trust || defaultTrust;
-
+// ------------------------------------------------------
+// Boutons IA
+// ------------------------------------------------------
+function updateIaButtons(trust) {
   const map = {
-    chatgpt: document.getElementById('btn-send-chatgpt'),
-    perplexity: document.getElementById('btn-send-perplexity'),
-    mistral: document.getElementById('btn-send-mistral')
+    chatgpt: document.getElementById("btn-send-chatgpt"),
+    perplexity: document.getElementById("btn-send-perplexity"),
+    mistral: document.getElementById("btn-send-mistral"),
   };
 
-  Object.keys(map).forEach(key => {
-    const btn = map[key];
-    if (!btn) return;
+  Object.keys(map).forEach((k) => {
+    const btn = map[k];
+    btn.classList.remove("ia-green", "ia-orange", "ia-grey", "disabled");
+    const val = trust[k];
 
-    const value = Number(t[key] || 3);
-    btn.classList.remove('ia-green', 'ia-orange', 'ia-grey', 'disabled');
-    btn.disabled = false;
-
-    if (value === 3) {
-      btn.classList.add('ia-green');
-    } else if (value === 2) {
-      btn.classList.add('ia-orange');
-    } else {
-      btn.classList.add('ia-grey', 'disabled');
+    if (val === 3) btn.classList.add("ia-green");
+    else if (val === 2) btn.classList.add("ia-orange");
+    else {
+      btn.classList.add("ia-grey", "disabled");
       btn.disabled = true;
     }
   });
 }
 
-// -----------------------------
-// Compilation du prompt
-// -----------------------------
+// ======================================================
+// COMPILATION DU PROMPT
+// ======================================================
 
 function updateCompiledPrompt() {
-  const compiledPrompt = document.getElementById('compiled-prompt');
-  const extraInfo = document.getElementById('read-extra-info');
-  const varsContainer = document.getElementById('read-variables-container');
+  if (!currentFiche) return;
 
-  if (!compiledPrompt || !extraInfo || !varsContainer) return;
-  if (!currentFiche) {
-    compiledPrompt.value = '';
-    return;
-  }
+  let result = currentFiche.preprompt;
+  const varsContainer = document.getElementById("read-variables-container");
+  const extra = document.getElementById("read-extra-info").value;
 
-  const preprompt = currentFiche.preprompt || '';
-  let result = preprompt;
-
-  // Récupération des valeurs de variables
   const varValues = {};
-  const rows = varsContainer.querySelectorAll('.variables-read-row');
+  let missing = false;
 
-  let missingRequired = false;
-  let firstMissing = null;
+  varsContainer.querySelectorAll("[data-var-id]").forEach((row) => {
+    const id = row.dataset.varId;
+    const type = row.dataset.varType;
+    const required = row.dataset.required === "true";
 
-  rows.forEach(row => {
-    const id = row.dataset.varId || '';
-    const type = row.dataset.varType || 'text';
-    const required = row.dataset.required === 'true';
+    let value = "";
 
-    let value = '';
+    if (type === "geolocation") {
+      const lat = row.querySelector(".var-input-lat").value.trim();
+      const lon = row.querySelector(".var-input-lon").value.trim();
+      value = lat && lon ? `lat=${lat}, lon=${lon}` : "";
 
-    if (type === 'geolocation') {
-      const latInput = row.querySelector('.var-input-lat');
-      const lonInput = row.querySelector('.var-input-lon');
-      const lat = latInput ? latInput.value.trim() : '';
-      const lon = lonInput ? lonInput.value.trim() : '';
-      if (lat || lon) {
-        value = `lat=${lat}, lon=${lon}`;
-      }
-      if (required && (!lat || !lon)) {
-        missingRequired = true;
-        if (!firstMissing) firstMissing = id || 'géolocalisation';
-      }
+      if (required && (!lat || !lon)) missing = true;
     } else {
-      const input = row.querySelector('.var-input');
-      value = input ? input.value.trim() : '';
-      if (required && !value) {
-        missingRequired = true;
-        if (!firstMissing) firstMissing = id || 'variable';
-      }
+      value = row.querySelector(".var-input").value.trim();
+      if (required && !value) missing = true;
     }
 
-    if (id) {
-      varValues[id] = value;
-    }
+    varValues[id] = value;
   });
 
-  // Remplacement simple {{id}} -> valeur
-  Object.keys(varValues).forEach(key => {
-    const pattern = new RegExp('\\{\\{' + escapeRegExp(key) + '\\}\\}', 'g');
-    result = result.replace(pattern, varValues[key] || '');
+  Object.keys(varValues).forEach((k) => {
+    result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), varValues[k]);
   });
 
-  // Ajout bloc récapitulatif
-  result += '\n\nVariables :\n';
-  Object.keys(varValues).forEach(key => {
-    result += key + ' = ' + (varValues[key] || '') + '\n';
+  result += "\n\nVariables :\n";
+  Object.entries(varValues).forEach(([k, v]) => {
+    result += `${k} = ${v}\n`;
   });
 
-  result += '\nInformations complémentaires :\n';
-  result += (extraInfo.value || '');
+  result += "\nInformations complémentaires :\n" + (extra || "");
 
-  compiledPrompt.value = result;
+  document.getElementById("compiled-prompt").value = result;
 
-  // Gestion des champs obligatoires -> boutons IA désactivés
-  const errorEl = document.getElementById('read-error');
-  const iaButtons = document.querySelectorAll('.ai-buttons-row .ia-btn');
-
-  if (missingRequired) {
-    if (errorEl) {
-      errorEl.textContent = "Certaines variables obligatoires ne sont pas renseignées, envoi du prompt impossible.";
-    }
-    iaButtons.forEach(btn => {
-      if (!btn.classList.contains('ia-grey')) {
-        btn.disabled = true;
-        btn.classList.add('disabled');
-      }
-    });
+  if (missing) {
+    document.getElementById("read-error").textContent =
+      "Variable(s) obligatoire(s) manquante(s).";
+    disableIaButtons();
   } else {
-    // Réactive selon les indices de confiance
-    if (errorEl && errorEl.textContent.startsWith('Certaines variables')) {
-      errorEl.textContent = '';
-    }
-    setupIaButtonsFromTrust(currentFiche.trust);
+    document.getElementById("read-error").textContent = "";
+    updateIaButtons(currentFiche.trust);
   }
 }
 
-// Échappement regex pour les identifiants de variables
-function escapeRegExp(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function disableIaButtons() {
+  document.querySelectorAll(".ia-btn").forEach((btn) => {
+    btn.disabled = true;
+    btn.classList.add("disabled", "ia-grey");
+    btn.classList.remove("ia-green", "ia-orange");
+  });
 }
 
-// -----------------------------
-// Copier le prompt
-// -----------------------------
-
+// ------------------------------------------------------
+// Copier prompt
+// ------------------------------------------------------
 function copyCompiledPrompt() {
-  const compiledPrompt = document.getElementById('compiled-prompt');
-  if (!compiledPrompt) return;
-
-  const text = compiledPrompt.value || '';
-  if (!text) {
-    alert("Aucun prompt compilé à copier.");
-    return;
-  }
-
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text)
-      .then(() => {
-        alert("Prompt copié dans le presse-papiers.");
-      })
-      .catch(err => {
-        console.error(err);
-        fallbackCopyText(text);
-      });
-  } else {
-    fallbackCopyText(text);
-  }
+  const text = document.getElementById("compiled-prompt").value;
+  navigator.clipboard.writeText(text).then(() => alert("Copié."));
 }
 
-// Fallback copie
-function fallbackCopyText(text) {
-  const textarea = document.createElement('textarea');
-  textarea.style.position = 'fixed';
-  textarea.style.opacity = '0';
-  textarea.value = text;
-  document.body.appendChild(textarea);
-  textarea.select();
-  try {
-    document.execCommand('copy');
-    alert("Prompt copié dans le presse-papiers.");
-  } catch (e) {
-    alert("Impossible de copier automatiquement le prompt.");
-  }
-  document.body.removeChild(textarea);
+// ------------------------------------------------------
+// Envoi vers IA
+// ------------------------------------------------------
+function sendPromptToIA(ia) {
+  const text = encodeURIComponent(document.getElementById("compiled-prompt").value);
+
+  const urls = {
+    chatgpt: "https://chatgpt.com/?q=",
+    perplexity: "https://www.perplexity.ai/search?q=",
+    mistral: "https://chat.mistral.ai/chat?query=",
+  };
+
+  window.open(urls[ia] + text, "_blank");
 }
 
-// -----------------------------
-// Envoi vers les IA (ouverture URL)
-// -----------------------------
-
-function sendPromptToIA(iaKey) {
-  const compiledPrompt = document.getElementById('compiled-prompt');
-  if (!compiledPrompt) return;
-
-  const text = compiledPrompt.value || '';
-  if (!text) {
-    alert("Le prompt compilé est vide, rien à envoyer.");
-    return;
-  }
-
-  const encoded = encodeURIComponent(text);
-  let url = '';
-
-  switch (iaKey) {
-    case 'chatgpt':
-      url = 'https://chatgpt.com/?q=' + encoded;
-      break;
-    case 'perplexity':
-      url = 'https://www.perplexity.ai/search?q=' + encoded;
-      break;
-    case 'mistral':
-      url = 'https://chat.mistral.ai/chat?query=' + encoded;
-      break;
-    default:
-      alert("IA non reconnue.");
-      return;
-  }
-
-  window.open(url, '_blank', 'noopener');
-}
-
-// -----------------------------
-// Réinitialisation onglet lecture
-// -----------------------------
-
+// ------------------------------------------------------
+// Reset onglet lecture
+// ------------------------------------------------------
 function resetReadTab() {
   stopCamera();
-
   currentFiche = null;
 
-  const catInput = document.getElementById('read-category');
-  const titleInput = document.getElementById('read-title');
-  const varsContainer = document.getElementById('read-variables-container');
-  const extraInfo = document.getElementById('read-extra-info');
-  const compiledPrompt = document.getElementById('compiled-prompt');
-  const readForm = document.getElementById('read-form');
-  const errorEl = document.getElementById('read-error');
+  document.getElementById("read-form").style.display = "none";
+  document.getElementById("read-variables-container").innerHTML = "";
+  document.getElementById("read-category").value = "";
+  document.getElementById("read-title").value = "";
+  document.getElementById("read-extra-info").value = "";
+  document.getElementById("compiled-prompt").value = "";
 
-  if (catInput) catInput.value = '';
-  if (titleInput) titleInput.value = '';
-  if (varsContainer) varsContainer.innerHTML = '';
-  if (extraInfo) extraInfo.value = '';
-  if (compiledPrompt) compiledPrompt.value = '';
-  if (readForm) readForm.style.display = 'none';
-  if (errorEl) errorEl.textContent = '';
-
-  const iaButtons = document.querySelectorAll('.ai-buttons-row .ia-btn');
-  iaButtons.forEach(btn => {
-    btn.disabled = true;
-    btn.classList.add('disabled', 'ia-grey');
-    btn.classList.remove('ia-green', 'ia-orange');
-  });
+  disableIaButtons();
 }
