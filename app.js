@@ -258,21 +258,33 @@ function buildFicheFromCreateForm() {
   return fiche;
 }
 
-// Compression + wrapper
 function buildWrapperAndCompress(fiche) {
   if (!window.pako) {
-    throw new Error("La bibliothèque de compression (pako) n'est pas chargée.");
+    throw new Error("La bibliothèque pako n'est pas chargée.");
   }
-  const jsonStr = JSON.stringify(fiche);
-  const compressedBinary = pako.deflate(jsonStr, { to: 'string' });
-  const base64 = btoa(compressedBinary);
 
-  const wrapper = {
-    z: "pako-base64-v1",
-    d: base64
-  };
-  return JSON.stringify(wrapper);
+  const jsonStr = JSON.stringify(fiche);
+
+  // Compression RAW (meilleure pour QR)
+  const compressed = pako.deflateRaw(jsonStr);
+
+  // Conversion Uint8Array -> base64 optimisé
+  const base64 = uint8ToBase64(compressed);
+
+  // Wrapper ultra compact
+  return JSON.stringify({ z: "p1", d: base64 });
 }
+
+// Conversion optimisée
+function uint8ToBase64(bytes) {
+  let binary = "";
+  const len = bytes.length;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 
 // Affiche le QR dans la zone prévue
 function renderQRCode(text) {
