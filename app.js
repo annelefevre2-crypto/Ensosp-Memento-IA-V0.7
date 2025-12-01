@@ -298,12 +298,13 @@ function renderQRCode(text) {
   }
 
   // QRCode.js ajuste automatiquement la version en fonction du contenu
-  new QRCode(qrContainer, {
-    text: text,
-    width: 260,
-    height: 260,
-    correctLevel: QRCode.CorrectLevel.H // niveau d’erreur élevé pour robustesse impression
-  });
+new QRCode(qrContainer, {
+  text: payload,
+  width: 400,
+  height: 400,
+  margin: 4,                // marge obligatoire
+  correctLevel: QRCode.CorrectLevel.M  // pas H (trop lourd)
+});
 }
 
 // Téléchargement du QR généré en PNG
